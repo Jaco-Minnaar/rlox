@@ -1,4 +1,5 @@
 pub mod expr;
+pub mod stmt;
 
 use self::expr::Expr;
 use std::fmt::{self, Display, Formatter};
@@ -26,6 +27,7 @@ impl Display for Expr {
             Grouping(expr) => parenthesize!("group", expr),
             Literal(lit) => format!("{}", lit),
             Unary(op, expr) => parenthesize!(op, expr),
+            Variable(name) => format!("{}", name.lexeme),
         };
 
         write!(f, "{}", result)

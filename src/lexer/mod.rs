@@ -57,9 +57,9 @@ pub enum TokenKind {
 
 #[derive(Debug)]
 pub struct Token {
-    value: TokenKind,
-    length: usize,
-    lexeme: String,
+    pub value: TokenKind,
+    pub length: usize,
+    pub lexeme: String,
 }
 
 pub fn tokenize(input: &str) -> impl Iterator<Item = Token> + '_ {
@@ -137,7 +137,8 @@ impl Cursor<'_> {
                     (TokenKind::Slash, c.to_string())
                 }
             }
-            c if c.is_whitespace() => (TokenKind::Whitespace, c.to_string()),
+            // c if c.is_whitespace() => (TokenKind::Whitespace, c.to_string()),
+            c if c.is_whitespace() => return self.advance_token(),
             '"' => self.string(),
             c if c.is_digit(10) => self.number(c),
             c if c.is_alphabetic() => self.identifier(c),
@@ -155,7 +156,6 @@ impl Cursor<'_> {
         let mut val = String::new();
         while let Some(c) = self.bump() {
             if c == '"' {
-                self.bump().unwrap();
                 let lex = format!("\"{}\"", &val);
                 return (TokenKind::String(val), lex);
             }
