@@ -132,7 +132,7 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         let mut params = vec![];
 
         match self.peek_kind() {
-            Some(TokenKind::LeftParen) => (),
+            Some(TokenKind::RightParen) => (),
             _ => loop {
                 if params.len() >= 255 {
                     return Err(ParsingError::GeneralError(

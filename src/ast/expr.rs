@@ -55,6 +55,7 @@ impl TryFrom<TokenKind> for BinOp {
             TokenKind::Minus => Self::Minus,
             TokenKind::Star => Self::Multiply,
             TokenKind::Slash => Self::Divide,
+            TokenKind::Ne => Self::Ne,
             _ => return Err("Unmatchable Token"),
         };
 
@@ -139,7 +140,7 @@ impl Display for Literal {
         use Literal::*;
 
         let result = match self {
-            String(s) => format!("\"{}\"", s.clone()),
+            String(s) => format!("{}", s),
             Number(n) => n.to_string(),
             Bool(b) => b.to_string(),
             Callable(_) => "callable".to_string(),

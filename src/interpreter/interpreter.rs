@@ -191,7 +191,7 @@ impl Interpreter {
                             ));
                         }
                     }
-                    UnOp::LogNeg => Literal::Bool(is_truthy(&right)),
+                    UnOp::LogNeg => Literal::Bool(!is_truthy(&right)),
                 }
             }
             ExprKind::Logical(op, lhs, rhs) => {
@@ -212,7 +212,7 @@ impl Interpreter {
                         (Literal::Number(n1), Literal::Number(n2)) => Literal::Number(n1 - n2),
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be numbers".into(),
+                                "Operands must be numbers.".into(),
                             ))
                         }
                     },
@@ -223,7 +223,7 @@ impl Interpreter {
                         }
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be two numbers or two strings".into(),
+                                "Operands must be two numbers or two strings.".into(),
                             ))
                         }
                     },
@@ -231,7 +231,7 @@ impl Interpreter {
                         (Literal::Number(n1), Literal::Number(n2)) => Literal::Number(n1 * n2),
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be numbers".into(),
+                                "Operands must be numbers.".into(),
                             ))
                         }
                     },
@@ -239,7 +239,7 @@ impl Interpreter {
                         (Literal::Number(n1), Literal::Number(n2)) => Literal::Number(n1 / n2),
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be numbers".into(),
+                                "Operands must be numbers.".into(),
                             ))
                         }
                     },
@@ -247,7 +247,7 @@ impl Interpreter {
                         (Literal::Number(n1), Literal::Number(n2)) => Literal::Bool(n1 > n2),
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be numbers".into(),
+                                "Operands must be numbers.".into(),
                             ))
                         }
                     },
@@ -255,7 +255,7 @@ impl Interpreter {
                         (Literal::Number(n1), Literal::Number(n2)) => Literal::Bool(n1 >= n2),
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be numbers".into(),
+                                "Operands must be numbers.".into(),
                             ))
                         }
                     },
@@ -263,7 +263,7 @@ impl Interpreter {
                         (Literal::Number(n1), Literal::Number(n2)) => Literal::Bool(n1 < n2),
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be numbers".into(),
+                                "Operands must be numbers.".into(),
                             ))
                         }
                     },
@@ -271,7 +271,7 @@ impl Interpreter {
                         (Literal::Number(n1), Literal::Number(n2)) => Literal::Bool(n1 <= n2),
                         _ => {
                             return Err(InterpreterErrorKind::General(
-                                "Operands must be numbers".into(),
+                                "Operands must be numbers.".into(),
                             ))
                         }
                     },

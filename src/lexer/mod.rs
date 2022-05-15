@@ -145,7 +145,7 @@ impl Cursor<'_> {
             c if c.is_whitespace() => return self.advance_token(),
             '"' => self.string(),
             c if c.is_digit(10) => self.number(c),
-            c if c.is_alphabetic() => self.identifier(c),
+            c if c.is_alphabetic() || c == '_' => self.identifier(c),
             EOF_CHAR => (TokenKind::Eof, c.to_string()),
             _ => (TokenKind::Unknown, c.to_string()),
         };
@@ -194,7 +194,7 @@ impl Cursor<'_> {
     fn identifier(&mut self, starting_char: char) -> (TokenKind, String) {
         let mut val = String::from(starting_char);
 
-        while self.first().is_alphanumeric() {
+        while self.first().is_alphanumeric() || self.first() == '_' {
             let c = self.bump().unwrap();
             val.push(c);
         }
