@@ -55,7 +55,7 @@ pub enum TokenKind {
     Eof,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub value: TokenKind,
     pub length: usize,
@@ -77,7 +77,11 @@ pub fn tokenize(input: &str) -> impl Iterator<Item = Token> + '_ {
 
 impl Cursor<'_> {
     fn advance_token(&mut self) -> Token {
-        let c = self.bump().unwrap();
+        let c = match self.bump() {
+            Some(c) => c,
+            None => EOF_CHAR,
+        };
+
         let (token_kind, lexeme) = match c {
             '(' => (TokenKind::LeftParen, c.to_string()),
             ')' => (TokenKind::RightParen, c.to_string()),
@@ -142,6 +146,7 @@ impl Cursor<'_> {
             '"' => self.string(),
             c if c.is_digit(10) => self.number(c),
             c if c.is_alphabetic() => self.identifier(c),
+            EOF_CHAR => (TokenKind::Eof, c.to_string()),
             _ => (TokenKind::Unknown, c.to_string()),
         };
 

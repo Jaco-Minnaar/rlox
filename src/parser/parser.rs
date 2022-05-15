@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        expr::{BinOp, Expr, ExprKind, Literal, UnOp},
+        expr::{BinOp, Expr, ExprKind, Literal, LogOp, UnOp},
         stmt::Stmt,
     },
     lexer::{Token, TokenKind},
@@ -10,20 +10,12 @@ use std::iter::Peekable;
 
 pub struct Parser<I: Iterator<Item = Token>> {
     tokens: Peekable<I>,
-    tokens_parsed: usize,
-    current_token: Token,
 }
 
 impl<I: Iterator<Item = Token>> Parser<I> {
     pub fn new(tokens: I) -> Self {
         Self {
             tokens: tokens.peekable(),
-            tokens_parsed: 0,
-            current_token: Token {
-                value: TokenKind::Unknown,
-                length: 0,
-                lexeme: "".into(),
-            },
         }
     }
 
@@ -102,6 +94,10 @@ impl<I: Iterator<Item = Token>> Parser<I> {
                 self.advance().unwrap();
                 self.var_declaration()
             }
+            Some(TokenKind::Fun) => {
+                self.advance().unwrap();
+                self.function("function")
+            }
             _ => self.statement(),
         };
 
@@ -112,6 +108,69 @@ impl<I: Iterator<Item = Token>> Parser<I> {
                 self.sync();
                 None
             }
+        }
+    }
+
+    fn function(&mut self, kind: &str) -> Result<Stmt, ParsingError> {
+        let name = match self.peek_kind() {
+            Some(TokenKind::Identifier(id)) => self.advance().unwrap(),
+            _ => return Err(ParsingError::GeneralError(format!("Expect {} name.", kind))),
+        };
+
+        match self.peek_kind() {
+            Some(TokenKind::LeftParen) => {
+                self.advance().unwrap();
+            }
+            _ => {
+                return Err(ParsingError::GeneralError(format!(
+                    "Expect '(' after {} name",
+                    kind
+                )))
+            }
+        }
+
+        let mut params = vec![];
+
+        match self.peek_kind() {
+            Some(TokenKind::LeftParen) => (),
+            _ => loop {
+                if params.len() >= 255 {
+                    return Err(ParsingError::GeneralError(
+                        "Can't have more than 255 parameters.".into(),
+                    ));
+                }
+
+                match self.peek_kind() {
+                    Some(TokenKind::Identifier(_)) => params.push(self.advance().unwrap()),
+                    _ => return Err(ParsingError::GeneralError("Expect parameter name.".into())),
+                }
+
+                match self.peek_kind() {
+                    Some(TokenKind::Comma) => self.advance().unwrap(),
+                    _ => break,
+                };
+            },
+        };
+
+        match self.peek_kind() {
+            Some(TokenKind::RightParen) => self.advance().unwrap(),
+            _ => {
+                return Err(ParsingError::GeneralError(
+                    "Expect ')' after parameters".into(),
+                ))
+            }
+        };
+
+        match self.peek_kind() {
+            Some(TokenKind::LeftBrace) => {
+                self.advance().unwrap();
+                let body = self.block()?;
+                Ok(Stmt::Function(name, params, body))
+            }
+            _ => Err(ParsingError::GeneralError(format!(
+                "Expect '{{' before {} body",
+                kind
+            ))),
         }
     }
 
@@ -147,8 +206,146 @@ impl<I: Iterator<Item = Token>> Parser<I> {
                 self.advance().unwrap();
                 self.print_statement()
             }
+            Some(TokenKind::LeftBrace) => {
+                self.advance().unwrap();
+                Ok(Stmt::Block(self.block()?))
+            }
+            Some(TokenKind::If) => {
+                self.advance().unwrap();
+                self.if_statement()
+            }
+            Some(TokenKind::While) => {
+                self.advance().unwrap();
+                self.while_statement()
+            }
+            Some(TokenKind::For) => {
+                self.advance().unwrap();
+                self.for_statement()
+            }
+            Some(TokenKind::Return) => {
+                let token = self.advance().unwrap();
+                self.return_statement(token)
+            }
             _ => self.expression_statement(),
         }
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt, ParsingError> {
+        match self.peek_kind() {
+            Some(TokenKind::LeftParen) => self.advance().unwrap(),
+            _ => return Err(ParsingError::GeneralError("Expect '(' after 'if'".into())),
+        };
+
+        let condition = self.expression()?;
+
+        match self.peek_kind() {
+            Some(TokenKind::RightParen) => self.advance().unwrap(),
+            _ => return Err(ParsingError::GeneralError("Expect ')' after 'if'".into())),
+        };
+
+        let then_branch = self.statement()?;
+        let else_branch = match self.peek_kind() {
+            Some(TokenKind::Else) => {
+                self.advance().unwrap();
+                Some(self.statement()?)
+            }
+            _ => None,
+        };
+
+        Ok(Stmt::If(
+            condition,
+            Box::new(then_branch),
+            Box::new(else_branch),
+        ))
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt, ParsingError> {
+        match self.peek_kind() {
+            Some(TokenKind::LeftParen) => self.advance().unwrap(),
+            _ => return Err(ParsingError::GeneralError("Expect '(' after 'if'".into())),
+        };
+
+        let condition = self.expression()?;
+
+        match self.peek_kind() {
+            Some(TokenKind::RightParen) => self.advance().unwrap(),
+            _ => return Err(ParsingError::GeneralError("Expect ')' after 'if'".into())),
+        };
+
+        let body = self.statement()?;
+
+        Ok(Stmt::While(condition, Box::new(body)))
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt, ParsingError> {
+        match self.peek_kind() {
+            Some(TokenKind::LeftParen) => self.advance().unwrap(),
+            _ => return Err(ParsingError::GeneralError("Expect '(' after 'if'".into())),
+        };
+
+        let initializer = match self.peek_kind() {
+            Some(TokenKind::Semicolon) => {
+                self.advance().unwrap();
+                None
+            }
+            Some(TokenKind::Var) => {
+                self.advance().unwrap();
+                Some(self.var_declaration()?)
+            }
+            _ => Some(self.expression_statement()?),
+        };
+
+        let mut condition = match self.peek_kind() {
+            Some(TokenKind::Semicolon) => None,
+            _ => Some(self.expression()?),
+        };
+
+        match self.peek_kind() {
+            Some(TokenKind::Semicolon) => {
+                self.advance().unwrap();
+            }
+            _ => {
+                return Err(ParsingError::GeneralError(
+                    "Expect ';' after loop conditions.".into(),
+                ))
+            }
+        }
+
+        let increment = match self.peek_kind() {
+            Some(TokenKind::RightParen) => None,
+            _ => Some(self.expression()?),
+        };
+
+        match self.peek_kind() {
+            Some(TokenKind::RightParen) => {
+                self.advance().unwrap();
+            }
+            _ => {
+                return Err(ParsingError::GeneralError(
+                    "Expect ')' after for clauses.".into(),
+                ))
+            }
+        }
+
+        let mut body = self.statement()?;
+
+        if let Some(increment) = increment {
+            body = Stmt::Block(vec![body, Stmt::Expression(increment)]);
+        }
+
+        if condition.is_none() {
+            condition.replace(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+            });
+        }
+
+        body = Stmt::While(condition.unwrap(), Box::new(body));
+
+        if let Some(initializer) = initializer {
+            body = Stmt::Block(vec![initializer, body]);
+        }
+
+        Ok(body)
     }
 
     fn print_statement(&mut self) -> Result<Stmt, ParsingError> {
@@ -160,6 +357,23 @@ impl<I: Iterator<Item = Token>> Parser<I> {
                 Ok(Stmt::Print(value))
             }
             _ => Err(ParsingError::GeneralError("Expect ';' after value".into())),
+        }
+    }
+
+    fn return_statement(&mut self, keyword: Token) -> Result<Stmt, ParsingError> {
+        let value = match self.peek_kind() {
+            Some(TokenKind::Semicolon) => None,
+            _ => Some(self.expression()?),
+        };
+
+        match self.peek_kind() {
+            Some(TokenKind::Semicolon) => {
+                self.advance().unwrap();
+                Ok(Stmt::Return(keyword, value))
+            }
+            _ => Err(ParsingError::GeneralError(
+                "Expect ';' after return value".into(),
+            )),
         }
     }
 
@@ -175,8 +389,90 @@ impl<I: Iterator<Item = Token>> Parser<I> {
         }
     }
 
+    fn block(&mut self) -> Result<Vec<Stmt>, ParsingError> {
+        let mut stmts = vec![];
+
+        while !self.is_at_end() {
+            match self.peek_kind() {
+                Some(TokenKind::RightBrace) => break,
+                _ => {
+                    if let Some(declaration) = self.declaration() {
+                        stmts.push(declaration);
+                    }
+                }
+            }
+        }
+
+        if let Some(TokenKind::RightBrace) = self.peek_kind() {
+            self.advance().unwrap();
+            Ok(stmts)
+        } else {
+            Err(ParsingError::GeneralError("Expect '}' after block.".into()))
+        }
+    }
+
     fn expression(&mut self) -> Result<Expr, ParsingError> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr, ParsingError> {
+        let expr = self.or()?;
+
+        match self.peek_kind() {
+            Some(TokenKind::Eq) => {
+                self.advance().unwrap();
+                let value = self.assignment()?;
+                match expr.kind {
+                    ExprKind::Variable(name) => Ok(Expr {
+                        kind: ExprKind::Assign(name, Box::new(value)),
+                    }),
+                    _ => Err(ParsingError::GeneralError(
+                        "Invalid assignment target".into(),
+                    )),
+                }
+            }
+            _ => Ok(expr),
+        }
+    }
+
+    fn or(&mut self) -> Result<Expr, ParsingError> {
+        let mut expr = self.and()?;
+
+        loop {
+            match self.peek_kind() {
+                Some(TokenKind::Or) => {
+                    let operator_token = self.advance().unwrap();
+                    let operator = LogOp::try_from(operator_token.value).unwrap();
+                    let right = self.and()?;
+                    expr = Expr {
+                        kind: ExprKind::Logical(operator, Box::new(expr), Box::new(right)),
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<Expr, ParsingError> {
+        let mut expr = self.equality()?;
+
+        loop {
+            match self.peek_kind() {
+                Some(TokenKind::And) => {
+                    let operator_token = self.advance().unwrap();
+                    let operator = LogOp::try_from(operator_token.value).unwrap();
+                    let right = self.equality()?;
+                    expr = Expr {
+                        kind: ExprKind::Logical(operator, Box::new(expr), Box::new(right)),
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Expr, ParsingError> {
@@ -275,7 +571,58 @@ impl<I: Iterator<Item = Token>> Parser<I> {
                     kind: ExprKind::Unary(un_op, Box::new(right)),
                 })
             }
-            _ => self.primary(),
+            _ => self.call(),
+        }
+    }
+
+    fn call(&mut self) -> Result<Expr, ParsingError> {
+        let mut expr = self.primary()?;
+
+        loop {
+            match self.peek_kind() {
+                Some(TokenKind::LeftParen) => {
+                    self.advance().unwrap();
+                    expr = self.finish_call(expr)?
+                }
+                _ => break,
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr, ParsingError> {
+        let mut arguments = vec![];
+
+        match self.peek_kind() {
+            Some(TokenKind::RightParen) => (),
+            _ => loop {
+                if arguments.len() >= 255 {
+                    return Err(ParsingError::GeneralError(
+                        "Can't have more than 255 arguments".into(),
+                    ));
+                }
+
+                arguments.push(self.expression()?);
+                match self.peek_kind() {
+                    Some(TokenKind::Comma) => {
+                        self.advance().unwrap();
+                    }
+                    _ => break,
+                }
+            },
+        }
+
+        match self.peek_kind() {
+            Some(TokenKind::RightParen) => {
+                self.advance().unwrap();
+                Ok(Expr {
+                    kind: ExprKind::Call(Box::new(callee), arguments),
+                })
+            }
+            _ => Err(ParsingError::GeneralError(
+                "Expect ')' after arguments.".into(),
+            )),
         }
     }
 

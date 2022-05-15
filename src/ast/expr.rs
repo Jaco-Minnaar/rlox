@@ -1,7 +1,11 @@
 use std::fmt::Display;
 
-use crate::lexer::{Token, TokenKind};
+use crate::{
+    interpreter::callable::LoxCallable,
+    lexer::{Token, TokenKind},
+};
 
+#[derive(Clone, Copy, Debug)]
 pub enum BinOp {
     Plus,
     Minus,
@@ -58,6 +62,7 @@ impl TryFrom<TokenKind> for BinOp {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum UnOp {
     BinNeg,
     LogNeg,
@@ -89,11 +94,43 @@ impl TryFrom<TokenKind> for UnOp {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
+pub enum LogOp {
+    And,
+    Or,
+}
+
+impl Display for LogOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let result = match self {
+            LogOp::And => "and",
+            LogOp::Or => "or",
+        };
+
+        write!(f, "{}", result)
+    }
+}
+
+impl TryFrom<TokenKind> for LogOp {
+    type Error = &'static str;
+
+    fn try_from(value: TokenKind) -> Result<Self, Self::Error> {
+        let op = match value {
+            TokenKind::And => Self::And,
+            TokenKind::Or => Self::Or,
+            _ => return Err("Unmatchable token"),
+        };
+
+        Ok(op)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Literal {
     String(String),
     Number(f64),
     Bool(bool),
+    Callable(LoxCallable),
     Nil,
 }
 
@@ -105,6 +142,7 @@ impl Display for Literal {
             String(s) => format!("\"{}\"", s.clone()),
             Number(n) => n.to_string(),
             Bool(b) => b.to_string(),
+            Callable(_) => "callable".to_string(),
             Nil => "nil".to_string(),
         };
 
@@ -112,14 +150,19 @@ impl Display for Literal {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum ExprKind {
     Binary(BinOp, Box<Expr>, Box<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),
+    Logical(LogOp, Box<Expr>, Box<Expr>),
     Unary(UnOp, Box<Expr>),
     Variable(Token),
+    Assign(Token, Box<Expr>),
 }
 
+#[derive(Clone, Debug)]
 pub struct Expr {
     pub kind: ExprKind,
 }

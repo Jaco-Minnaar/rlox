@@ -1,23 +1,44 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     ast::{
-        expr::{BinOp, Expr, ExprKind, Literal, UnOp},
+        expr::{BinOp, Expr, ExprKind, Literal, LogOp, UnOp},
         stmt::Stmt,
     },
     environment::Environment,
 };
 
+use super::callable::{Callable, Clock, LoxCallable, LoxFunction};
+
 #[derive(Debug)]
 pub enum InterpreterErrorKind {
     General(String),
+    Return(Option<Literal>),
 }
 
-pub struct Interpreter<'a> {
-    environment: &'a mut Environment,
+pub struct Interpreter {
+    environment: Rc<RefCell<Environment>>,
+    pub globals: Rc<RefCell<Environment>>,
 }
 
-impl<'a> Interpreter<'a> {
-    pub fn new(environment: &'a mut Environment) -> Self {
-        Self { environment }
+impl Interpreter {
+    pub fn new() -> Self {
+        let mut globals = Environment::new();
+
+        let clock = Clock {};
+
+        globals.define(
+            "clock".into(),
+            Literal::Callable(LoxCallable::Other(Box::new(clock))),
+        );
+
+        let globals = Rc::new(RefCell::new(globals));
+        let environment = Rc::clone(&globals);
+
+        Self {
+            environment,
+            globals,
+        }
     }
 
     pub fn execute(&mut self, stmt: &Stmt) -> Result<(), InterpreterErrorKind> {
@@ -36,17 +57,127 @@ impl<'a> Interpreter<'a> {
                     Literal::Nil
                 };
 
-                self.environment.define(name.lexeme.clone(), value);
+                self.environment
+                    .borrow_mut()
+                    .define(name.lexeme.clone(), value);
+            }
+            Stmt::Block(stmts) => {
+                let environment = Rc::clone(&self.environment);
+                self.execute_block(
+                    &stmts,
+                    Rc::new(RefCell::new(Environment::with_enclosing(environment))),
+                )?;
+            }
+            Stmt::If(condition, then_stmt, else_stmt) => {
+                if is_truthy(&self.evaluate(condition)?) {
+                    self.execute(&then_stmt)?;
+                } else {
+                    if let Some(stmt) = else_stmt.as_ref() {
+                        self.execute(&stmt)?;
+                    }
+                }
+            }
+            Stmt::While(condition, body) => {
+                while is_truthy(&self.evaluate(condition)?) {
+                    self.execute(body)?;
+                }
+            }
+            Stmt::Function(name, params, body) => {
+                let func = LoxFunction::new(
+                    name.lexeme.clone(),
+                    params.to_vec(),
+                    body.to_vec(),
+                    Rc::clone(&self.environment),
+                );
+
+                self.environment.borrow_mut().define(
+                    name.lexeme.clone(),
+                    Literal::Callable(LoxCallable::Function(func)),
+                );
+            }
+            Stmt::Return(_, value) => {
+                let value = match value {
+                    Some(value) => Some(self.evaluate(value)?),
+                    _ => None,
+                };
+
+                return Err(InterpreterErrorKind::Return(value));
             }
         };
 
         Ok(())
     }
 
+    pub fn execute_block(
+        &mut self,
+        stmts: &[Stmt],
+        environment: Rc<RefCell<Environment>>,
+    ) -> Result<(), InterpreterErrorKind> {
+        let previous = self.environment.clone();
+
+        self.environment = environment;
+
+        let mut err = None;
+        for stmt in stmts {
+            if let Err(e) = self.execute(stmt) {
+                err.replace(e);
+                break;
+            }
+        }
+
+        self.environment = previous;
+
+        if let Some(e) = err {
+            Err(e)
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn evaluate(&mut self, expr: &Expr) -> Result<Literal, InterpreterErrorKind> {
         let lit = match &expr.kind {
             ExprKind::Literal(l) => l.clone(),
             ExprKind::Grouping(expr) => self.evaluate(&expr)?,
+            ExprKind::Variable(name) => match self.environment.borrow_mut().get(name) {
+                Ok(val) => val,
+                Err(e) => return Err(InterpreterErrorKind::General(format!("{}", e))),
+            },
+            ExprKind::Assign(name, expr) => {
+                let value = self.evaluate(&expr)?;
+                if let Err(e) = self
+                    .environment
+                    .borrow_mut()
+                    .assign(name.lexeme.as_str(), value.clone())
+                {
+                    return Err(InterpreterErrorKind::General(e));
+                }
+
+                value
+            }
+            ExprKind::Call(callee, arguments) => {
+                let callee_v = if let Literal::Callable(callable) = self.evaluate(callee)? {
+                    callable
+                } else {
+                    return Err(InterpreterErrorKind::General(
+                        "Can only call functions and classes".into(),
+                    ));
+                };
+
+                if arguments.len() != callee_v.arity() {
+                    return Err(InterpreterErrorKind::General(format!(
+                        "Expected {} arguments but got {}.",
+                        callee_v.arity(),
+                        arguments.len()
+                    )));
+                }
+
+                let mut arguments_v = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    arguments_v.push(self.evaluate(argument)?);
+                }
+
+                callee_v.call(self, &arguments_v)?
+            }
             ExprKind::Unary(op, expr) => {
                 let right = self.evaluate(&expr)?;
 
@@ -63,10 +194,15 @@ impl<'a> Interpreter<'a> {
                     UnOp::LogNeg => Literal::Bool(is_truthy(&right)),
                 }
             }
-            ExprKind::Variable(name) => match self.environment.get(name) {
-                Ok(val) => val.clone().to_owned(),
-                Err(e) => return Err(InterpreterErrorKind::General(format!("{}", e))),
-            },
+            ExprKind::Logical(op, lhs, rhs) => {
+                let left = self.evaluate(&lhs)?;
+
+                match op {
+                    LogOp::And if !is_truthy(&left) => left,
+                    LogOp::Or if is_truthy(&left) => left,
+                    _ => self.evaluate(rhs)?,
+                }
+            }
             ExprKind::Binary(op, lhs, rhs) => {
                 let left = self.evaluate(&lhs)?;
                 let right = self.evaluate(&rhs)?;

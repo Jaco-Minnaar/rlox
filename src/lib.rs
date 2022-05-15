@@ -3,13 +3,12 @@ mod environment;
 mod interpreter;
 mod lexer;
 mod parser;
+mod runner;
 
 use std::{fs, io};
 
+use runner::Runner;
 use rustyline::{error::ReadlineError, Editor};
-
-use crate::environment::Environment;
-use crate::interpreter::InterpreterErrorKind;
 
 const HISTORY_PATH: &'static str = ".dev-data/history";
 
@@ -28,9 +27,9 @@ struct LoxError {
 
 pub fn run_file(path: String) -> io::Result<()> {
     let file_contents = fs::read_to_string(path)?;
-    let mut env = Environment::new();
+    let mut runner = Runner::new();
 
-    run(file_contents.as_str(), &mut env).unwrap();
+    runner.run(file_contents.as_str()).unwrap();
 
     Ok(())
 }
@@ -38,7 +37,7 @@ pub fn run_file(path: String) -> io::Result<()> {
 pub fn run_prompt() -> io::Result<()> {
     let mut rl = Editor::<()>::new();
     rl.load_history(&HISTORY_PATH).unwrap_or_default();
-    let mut environment = Environment::new();
+    let mut runner = Runner::new();
 
     loop {
         let readline = rl.readline(">> ");
@@ -64,39 +63,11 @@ pub fn run_prompt() -> io::Result<()> {
 
         rl.add_history_entry(line.as_str());
 
-        if let Err(_e) = run(line.as_str(), &mut environment) {
+        if let Err(_e) = runner.run(line.as_str()) {
             continue;
         }
     }
     rl.save_history(HISTORY_PATH).unwrap();
-
-    Ok(())
-}
-
-fn run(content: &str, env: &mut Environment) -> Result<(), LoxError> {
-    // let tokens = lexer::tokenize(content);
-    //
-    // for token in tokens {
-    //     println!("{:?}", token);
-    // }
-
-    let tokens = lexer::tokenize(content);
-
-    let stmts = parser::parse(tokens);
-    // let printed_ast = ast::pretty_print(&expr);
-    // println!("{}", printed_ast);
-
-    if let Err(e) = interpreter::interpret(&stmts, env) {
-        match e {
-            InterpreterErrorKind::General(s) => {
-                eprintln!("Interpreter Error: {}", s);
-                return Err(LoxError {
-                    error_type: LoxErrorType::RuntimeError,
-                    line: 0,
-                });
-            }
-        }
-    };
 
     Ok(())
 }

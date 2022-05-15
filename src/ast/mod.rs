@@ -5,10 +5,9 @@ use self::expr::Expr;
 use std::fmt::{self, Display, Formatter};
 
 macro_rules! parenthesize {
-    ( $s: tt, $($x:expr),* ) => {
+    ( $($x:expr),* ) => {
         {
             let mut builder = String::from('(');
-            builder.push_str(format!("{}", $s).as_str());
             $(
                 builder.push_str(format!(" {}", $x).as_str());
             )*
@@ -27,7 +26,10 @@ impl Display for Expr {
             Grouping(expr) => parenthesize!("group", expr),
             Literal(lit) => format!("{}", lit),
             Unary(op, expr) => parenthesize!(op, expr),
-            Variable(name) => format!("{}", name.lexeme),
+            Variable(name) => parenthesize!("var", name.lexeme.as_str()),
+            Assign(name, expr) => parenthesize!("=", name.lexeme.as_str(), expr),
+            Logical(op, lhs, rhs) => parenthesize!(op, lhs, rhs),
+            Call(name, _args) => parenthesize!("call", name),
         };
 
         write!(f, "{}", result)
